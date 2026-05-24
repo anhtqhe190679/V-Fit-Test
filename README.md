@@ -1,5 +1,5 @@
 # V-Fit
-
+![Pipeline](assets/pipeline.png)
 # Directory Organization 
 ```bash 
 ai-fitness-app/
