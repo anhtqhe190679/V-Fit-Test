@@ -1,36 +1,40 @@
+# form_check/form_checker.py
+
 from shared.angle_calculator import calculate_body_angles
 from form_check.feedback_generator import generate_feedback
-from form_check.rules.squat_rules import SquatRules
-from form_check.rules.leg_rules import RomanianDeadliftRules, DeadliftRules
-from form_check.rules.arm_rules import BicepCurlRules, TricepsPushdownRules
+from form_check.exercise_registry import get_exercise_config
+from form_check.rules.generic_rules import create_rule_checker
+
 
 class FormChecker:
-    def __init__(self, exercise="squat", camera_view="side"):
+    def __init__(self, exercise="squat", camera_view=None):
         self.exercise = exercise
         self.camera_view = camera_view
-        self.rule_checker = self._create_rule_checker(exercise)
+        self.exercise_config = None
+        self.rule_checker = None
 
-    def _create_rule_checker(self, exercise):
-        if exercise == "squat":
-            return SquatRules(camera_view=self.camera_view)
-
-        if exercise in ["romanian_deadlift", "rdl"]:
-            return RomanianDeadliftRules()
-
-        if exercise == "deadlift":
-            return DeadliftRules()
-
-        if exercise == "bicep_curl":
-            return BicepCurlRules()
-
-        if exercise == "triceps_pushdown":
-            return TricepsPushdownRules()
-
-        raise ValueError(f"Unsupported exercise: {exercise}")
+        self.set_exercise(exercise)
 
     def set_exercise(self, exercise):
+        config = get_exercise_config(exercise)
+
+        if config is None:
+            raise ValueError(f"Unsupported exercise: {exercise}")
+
         self.exercise = exercise
-        self.rule_checker = self._create_rule_checker(exercise)
+        self.exercise_config = dict(config)
+
+        if self.camera_view is not None:
+            self.exercise_config["view"] = self.camera_view
+
+        self.rule_checker = create_rule_checker(
+            exercise_slug=exercise,
+            exercise_config=self.exercise_config,
+        )
+
+    def set_camera_view(self, camera_view):
+        self.camera_view = camera_view
+        self.set_exercise(self.exercise)
 
     def check(self, keypoints, angles=None):
         if keypoints is None:
@@ -50,7 +54,6 @@ class FormChecker:
 
         result = self.rule_checker.check(keypoints, angles)
         result["feedback"] = generate_feedback(result.get("errors", []))
-
         return result
 
     def reset(self):
