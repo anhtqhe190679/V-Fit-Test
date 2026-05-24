@@ -1,5 +1,4 @@
 import cv2
-
 from shared.pose_estimation import PoseEstimator
 from shared.keypoint_utils import extract_keypoints
 from shared.angle_calculator import calculate_body_angles
@@ -7,6 +6,7 @@ from shared.drawing_utils import (
     draw_pose_landmarks,
     draw_keypoint_names,
     draw_angles,
+    draw_form_result,
 )
 
 from body_analysis.body_analyzer import BodyAnalyzer
@@ -61,6 +61,7 @@ def main():
         draw_pose_landmarks(frame, results)
         draw_keypoint_names(frame, keypoints)
         draw_angles(frame, keypoints, angles)
+        draw_form_result(frame, form_result)
 
         # 5. HIỂN THỊ THÔNG TIN LÊN MÀN HÌNH
         # Nút thoát
@@ -82,9 +83,11 @@ def main():
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2, cv2.LINE_AA
             )
 
-        cv2.imshow("AI Fitness App - Pose Detection", frame)
+        cv2.imshow("AI Fitness Form Check", frame)
 
-        if cv2.waitKey(1) & 0xFF == ord("q"):
+        key = cv2.waitKey(1) & 0xFF
+
+        if key == ord("q"):
             break
 
     # 6. Dọn dẹp bộ nhớ

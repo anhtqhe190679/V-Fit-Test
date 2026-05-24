@@ -72,3 +72,88 @@ def draw_angles(frame, keypoints, angles):
             1,
             cv2.LINE_AA,
         )
+
+def draw_form_result(frame, form_result):
+    if form_result is None:
+        return
+
+    x = 20
+    y = 40
+    line_gap = 32
+
+    exercise = form_result.get("exercise", "unknown")
+    rep_count = form_result.get("rep_count", 0)
+    stage = form_result.get("stage", "unknown")
+    score = form_result.get("score", 0)
+    feedback = form_result.get("feedback", [])
+
+    cv2.rectangle(frame, (10, 10), (760, 230), (0, 0, 0), -1)
+
+    cv2.putText(
+        frame,
+        f"Exercise: {exercise}",
+        (x, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.75,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+
+    cv2.putText(
+        frame,
+        f"Reps: {rep_count} | Stage: {stage} | Score: {score}",
+        (x, y + line_gap),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (0, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+
+    if feedback:
+        first = feedback[0]
+        warning = first.get("warning", "")
+        correction = first.get("correction", "")
+        severity = first.get("severity", "low")
+
+        color = (0, 255, 0)
+        if severity == "medium":
+            color = (0, 255, 255)
+        elif severity == "high":
+            color = (0, 0, 255)
+
+        cv2.putText(
+            frame,
+            f"WARNING: {warning}",
+            (x, y + line_gap * 2),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.62,
+            color,
+            2,
+            cv2.LINE_AA,
+        )
+
+        cv2.putText(
+            frame,
+            f"FIX: {correction}",
+            (x, y + line_gap * 3),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.58,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+
+    if len(feedback) > 1:
+        second = feedback[1]
+        cv2.putText(
+            frame,
+            f"NEXT: {second.get('correction', '')}",
+            (x, y + line_gap * 4),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
