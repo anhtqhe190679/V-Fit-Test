@@ -5,14 +5,15 @@ from shared.keypoint_utils import extract_keypoints
 from shared.angle_calculator import calculate_body_angles
 from shared.drawing_utils import (
     draw_pose_landmarks,
-    draw_keypoint_names,
-    draw_angles,
-    draw_form_result,
     draw_unicode_text,
 )
 
 from form_check.form_checker import FormChecker
-from form_check.exercise_registry import EXERCISES, EXERCISE_SLUGS, get_exercise_name
+from form_check.exercise_registry import (
+    EXERCISES,
+    EXERCISE_SLUGS,
+    get_exercise_name,
+)
 from body_analysis.body_analyzer import BodyAnalyzer
 
 # ============================================================
@@ -25,28 +26,34 @@ DISPLAY_HEIGHT = 720
 CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 720
 
-WINDOW_NAME = "AI Fitness Form Check + Body Analysis"
+WINDOW_NAME = "V-FIT AI Coach"
 
 def print_exercise_list():
     print("\n===== EXERCISE LIST =====")
     for i, item in enumerate(EXERCISES):
-        print(f"{i + 1:02d}. {item['display_name']} ({item['slug']})")
+        print(f"{i+1:02d}. {item['display_name']} ({item['slug']})")
     print("=========================\n")
 
 def main():
     cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
-        print("Error: Could not open laptop camera.")
+        print("Could not open camera.")
         return
 
-    # Set camera resolution
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+    cap.set(
+        cv2.CAP_PROP_FRAME_WIDTH,
+        CAMERA_WIDTH,
+    )
+    cap.set(
+        cv2.CAP_PROP_FRAME_HEIGHT,
+        CAMERA_HEIGHT,
+    )
 
-    # Make OpenCV window larger and resizable
-    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(WINDOW_NAME, DISPLAY_WIDTH, DISPLAY_HEIGHT)
+    cv2.namedWindow(
+        WINDOW_NAME,
+        cv2.WINDOW_NORMAL,
+    )
 
     pose_estimator = PoseEstimator()
     body_analyzer = BodyAnalyzer()
@@ -67,37 +74,29 @@ def main():
     current_imbalances = []
 
     print_exercise_list()
-    print("Controls:")
-    print("N = next exercise")
-    print("P = previous exercise")
-    print("R = reset reps")
-    print("F = front view mode")
-    print("S = side view mode")
-    print("L = print exercise list")
-    print("Q = quit")
 
     while True:
         ret, frame = cap.read()
 
         if not ret:
-            print("Error: Could not read frame.")
             break
 
-        # Mirror effect
         frame = cv2.flip(frame, 1)
         height, width, _ = frame.shape
 
-        # 1. Pose estimation
         results = pose_estimator.detect(frame)
+        keypoints = extract_keypoints(
+            results,
+            width,
+            height,
+        )
 
-        # 2. Extract keypoints
-        keypoints = extract_keypoints(results, width, height)
-
-        # 3. Calculate angles + form check + body analysis
         angles = None
 
         if keypoints is not None:
-            angles = calculate_body_angles(keypoints)
+            angles = calculate_body_angles(
+                keypoints
+            )
 
             # Luồng 1: AI Form Check (Chạy liên tục mỗi frame phục vụ đếm reps)
             form_result = form_checker.check(keypoints, angles)
@@ -122,54 +121,34 @@ def main():
             current_body_type = "Khong co nguoi..." # Xóa chữ báo dáng người
             current_desc = "" # Xóa chữ mô tả
 
-        # 4. Draw pose results
-        draw_pose_landmarks(frame, results)
-        draw_keypoint_names(frame, keypoints)
-        draw_angles(frame, keypoints, angles)
-
-        # 5. Draw form check result
-        draw_form_result(frame, form_result)
-
-        # 6. Draw current exercise info
-        current_name = get_exercise_name(current_exercise)
-
-        draw_unicode_text(
+        # Draw skeleton only
+        draw_pose_landmarks(
             frame,
-            f"Bài hiện tại: {exercise_index + 1}/{len(EXERCISE_SLUGS)} - {current_name}",
-            (20, height - 105),
-            font_size=22,
-            color=(0, 255, 255),
-            bold=True,
+            results,
         )
 
-        draw_unicode_text(
-            frame,
-            f"View: {camera_view} | N: bài tiếp | P: bài trước | R: reset | F: front | S: side | Q: thoát",
-            (20, height - 72),
-            font_size=19,
-            color=(255, 255, 255),
-            bold=False,
+        # New UI
+        current_name = get_exercise_name(
+            current_exercise
         )
 
         # 7. Draw body analysis result (Shape & Note)
         draw_unicode_text(
             frame,
-            f"Body Shape: {current_body_type}",
-            (20, 270),
-            font_size=22,
-            color=(255, 255, 0),
-            bold=True,
+            form_result,
+            current_name,
+            camera_view,
+            current_body_type,
+            current_desc,
         )
 
-        if current_desc:
-            draw_unicode_text(
-                frame,
-                f"Body Note: {current_desc}",
-                (20, 305),
-                font_size=18,
-                color=(0, 255, 255),
-                bold=False,
-            )
+        display_frame = cv2.resize(
+            frame,
+            (
+                DISPLAY_WIDTH,
+                DISPLAY_HEIGHT,
+            ),
+        )
 
         # 8. Draw Imbalance Issues (Lỗi lệch vai, hông, nghiêng đầu, cổ rùa...)
         y_offset = 340  # Bắt đầu vẽ ngay dưới Body Note
