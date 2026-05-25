@@ -1,61 +1,67 @@
+import math
+
 class PostureAnalyzer:
     def __init__(self):
         pass
 
     def _calculate_distance(self, p1, p2):
-        import math
+        if not p1 or not p2:
+            return 0.0
         return math.sqrt((p1['x'] - p2['x'])**2 + (p1['y'] - p2['y'])**2)
 
-    def analyze_shape(self, landmarks, silhouette_data=None):
-        """
-        Phân tích form dáng tổng thể (Gầy, Béo, Vừa).
-        """
-        # Bề ngang vai và hông
-        shoulder_width = self._calculate_distance(landmarks['left_shoulder'], landmarks['right_shoulder'])
-        hip_width = self._calculate_distance(landmarks['left_hip'], landmarks['right_hip'])
-        
-        # --- SỬA LỖI LOGIC: ĐO CHIỀU DÀI LƯNG ĐỂ TÌM NGƯỜI GẦY ---
-        # Tính chiều dài từ vai xuống hông
-        torso_length = self._calculate_distance(landmarks['left_shoulder'], landmarks['left_hip'])
-        
-        # Tính độ dày/mỏng của khung xương ($frame\_thickness = \frac{shoulder\_width}{torso\_length}$)
-        # Người gầy bề ngang sẽ rất hẹp so với chiều dài lưng
-        frame_thickness = shoulder_width / torso_length if torso_length > 0 else 1.0
+    def analyze_shape(self, landmarks, segmentation_mask=None):
+        if not landmarks:
+            return {"body_type": "Khong xac dinh", "description": "Chua bat duoc khung xuong."}
 
-        # Tỷ lệ Vai/Hông để đoán dáng người cơ bản
-        ratio = shoulder_width / hip_width if hip_width > 0 else 0
+        # Trích xuất dữ liệu an toàn
+        l_shoulder = landmarks.get('left_shoulder')
+        r_shoulder = landmarks.get('right_shoulder')
+        l_hip = landmarks.get('left_hip')
+        r_hip = landmarks.get('right_hip')
 
+        if not all([l_shoulder, r_shoulder, l_hip, r_hip]):
+            return {"body_type": "Dang phan tich...", "description": ""}
+
+        # 1. Đo tỷ lệ Khung xương (Chỉ phán dáng, không phán gầy/béo ở đây)
+        shoulder_width = self._calculate_distance(l_shoulder, r_shoulder)
+        hip_width = self._calculate_distance(l_hip, r_hip)
+        
+        if hip_width == 0:
+            return {"body_type": "Dang phan tich...", "description": ""}
+
+        ratio = shoulder_width / hip_width
+        
         result = {
-            "shoulder_hip_ratio": round(ratio, 2),
-            "body_type": "Chưa xác định",
+            "body_type": "",
             "description": ""
         }
 
-        # Đánh giá dựa trên khung xương (Chuyển sang không dấu)
-        if ratio > 1.3:
-            result["body_type"] = "Dang chu V (Can doi/The thao)" 
-        elif 0.95 <= ratio <= 1.3:
-            result["body_type"] = "Dang chu nhat (Trung binh)"
+        # Xác định hình dáng bộ xương cơ bản
+        if ratio > 1.25:
+            result["body_type"] = "Dang chu V"
+        elif 0.95 <= ratio <= 1.25:
+            result["body_type"] = "Dang chu nhat"
         else:
-            result["body_type"] = "Dang qua le (Hong to)"
+            result["body_type"] = "Dang qua le"
 
-        # Tích hợp dữ liệu mask (mỡ/cơ)
-        if silhouette_data:
-            fat_percentage = silhouette_data.get('body_fat_estimate', 15)
-            
-            # --- CẬP NHẬT LOGIC KIỂM TRA THÔNG MINH HƠN ---
-            # 1. Nếu khung người mỏng (frame_thickness < 0.85) -> Bắt buộc là người gầy
-            if frame_thickness < 0.85 or fat_percentage < 12:
-                result["body_type"] += " - Dang thieu can (Gay)"
-                result["description"] = "Khung xuong ban kha mong. Can an nhieu de tang can (Bulking)."
-            
-            # 2. Chỉ phán thừa cân nếu mỡ > 25% VÀ khung người không bị gầy
-            elif fat_percentage > 25 and frame_thickness >= 0.85:
-                result["body_type"] += " - Dang thua can"
-                result["description"] = "Co the ban dang co ty le mo kha cao."
-            
-            # 3. Các trường hợp còn lại là khỏe mạnh
-            else:
-                result["description"] = "Ban co ty le mo/co o muc tuong doi khoe manh."
+        # 2. Nội suy Gầy/Béo qua tỷ lệ Khung thân (Nâng độ nhạy cho người gầy)
+        mid_shoulder_y = (l_shoulder['y'] + r_shoulder['y']) / 2.0
+        mid_hip_y = (l_hip['y'] + r_hip['y']) / 2.0
+        back_length = abs(mid_hip_y - mid_shoulder_y)
+
+        # Tính tỷ lệ: Bề ngang vai chia cho Chiều dài lưng
+        frame_thickness = shoulder_width / back_length if back_length > 0 else 0
+
+        # CẬP NHẬT NGƯỠNG CHUẨN MEDIA PIPE 2D:
+        # Nâng ngưỡng gầy lên 0.66 (để bắt nhạy hơn cơ thể thiếu cơ/mỏng người)
+        if frame_thickness < 0.66: 
+            result["body_type"] += " - Thieu can (Gay)"
+            result["description"] = "Khung xuong hep, khoi luong co/mo dang o muc thap. Can tang co."
+        elif frame_thickness > 0.78: 
+            result["body_type"] += " - Thua can (Beo)"
+            result["description"] = "Ty le be ngang lon, co the dang thua mo hoac rat to."
+        else:
+            result["body_type"] += " - Can doi"
+            result["description"] = "Ty le mo/co o muc tuong doi khoe manh."
 
         return result
