@@ -1,12 +1,8 @@
 import cv2
+import mediapipe as mp
 
-from shared.pose_estimation import PoseEstimator
-from shared.keypoint_utils import extract_keypoints
 from shared.angle_calculator import calculate_body_angles
-from shared.drawing_utils import (
-    draw_pose_landmarks,
-    draw_unicode_text,
-)
+from shared.drawing_utils import draw_unicode_text
 
 from form_check.form_checker import FormChecker
 from form_check.exercise_registry import (
@@ -22,10 +18,8 @@ from body_analysis.body_analyzer import BodyAnalyzer
 
 DISPLAY_WIDTH = 1280
 DISPLAY_HEIGHT = 720
-
 CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 720
-
 WINDOW_NAME = "V-FIT AI Coach"
 
 def print_exercise_list():
@@ -34,6 +28,20 @@ def print_exercise_list():
         print(f"{i+1:02d}. {item['display_name']} ({item['slug']})")
     print("=========================\n")
 
+def extract_keypoints(results, width, height):
+    if not results.pose_landmarks:
+        return None
+    
+    keypoints = {}
+    for landmark in mp.solutions.pose.PoseLandmark:
+        pt = results.pose_landmarks.landmark[landmark.value]
+        keypoints[landmark.name.lower()] = {
+            'x': pt.x * width,
+            'y': pt.y * height,
+            'visibility': pt.visibility
+        }
+    return keypoints
+
 def main():
     cap = cv2.VideoCapture(0)
 
@@ -41,21 +49,18 @@ def main():
         print("Could not open camera.")
         return
 
-    cap.set(
-        cv2.CAP_PROP_FRAME_WIDTH,
-        CAMERA_WIDTH,
-    )
-    cap.set(
-        cv2.CAP_PROP_FRAME_HEIGHT,
-        CAMERA_HEIGHT,
-    )
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
 
-    cv2.namedWindow(
-        WINDOW_NAME,
-        cv2.WINDOW_NORMAL,
+    mp_pose = mp.solutions.pose
+    pose = mp_pose.Pose(
+        model_complexity=2,           
+        min_detection_confidence=0.6,
+        min_tracking_confidence=0.6
     )
+    mp_drawing = mp.solutions.drawing_utils
 
-    pose_estimator = PoseEstimator()
     body_analyzer = BodyAnalyzer()
 
     exercise_index = 0
@@ -67,7 +72,6 @@ def main():
         camera_view=camera_view,
     )
 
-    # Khởi tạo biến lưu trữ trạng thái hiển thị
     frame_counter = 0
     current_body_type = "Analyzing..."
     current_desc = ""
@@ -84,28 +88,20 @@ def main():
         frame = cv2.flip(frame, 1)
         height, width, _ = frame.shape
 
-        results = pose_estimator.detect(frame)
-        keypoints = extract_keypoints(
-            results,
-            width,
-            height,
-        )
-
+        image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = pose.process(image_rgb)
+        
+        keypoints = extract_keypoints(results, width, height)
         angles = None
 
         if keypoints is not None:
-            angles = calculate_body_angles(
-                keypoints
-            )
+            angles = calculate_body_angles(keypoints)
 
-            # Luồng 1: AI Form Check (Chạy liên tục mỗi frame phục vụ đếm reps)
             form_result = form_checker.check(keypoints, angles)
 
-            # Luồng 2: Đo lệch tư thế THỜI GIAN THỰC (Giải phóng hoàn toàn để chạy liên tục)
             if hasattr(body_analyzer, 'imbalance_detector'):
                 current_imbalances = body_analyzer.imbalance_detector.detect_imbalance(keypoints)
 
-            # Luồng 3: AI Quét dáng người nặng (Chạy định kỳ mỗi 30 frame tránh lag CPU)
             if frame_counter % 30 == 0:
                 report = body_analyzer.generate_report(
                     landmarks=keypoints,
@@ -114,49 +110,54 @@ def main():
                 if report and report.get("status") == "success":
                     current_body_type = report.get("body_type", "Unknown")
                     current_desc = report.get("general_description", "")
-                    # KHÔNG đọc hay gán đè biến current_imbalances ở đây nữa để tránh kẹt bộ nhớ đóng băng
+            
+            mp_drawing.draw_landmarks(
+                frame, 
+                results.pose_landmarks, 
+                mp_pose.POSE_CONNECTIONS
+            )
         else:
             form_result = form_checker.check(None, None)
-            current_imbalances = [] # Xóa sạch danh sách lệch khi mất người
-            current_body_type = "Khong co nguoi..." # Xóa chữ báo dáng người
-            current_desc = "" # Xóa chữ mô tả
+            current_imbalances = [] 
+            current_body_type = "Khong co nguoi..." 
+            current_desc = "" 
 
-        # Draw skeleton only
-        draw_pose_landmarks(
-            frame,
-            results,
-        )
+        frame_counter += 1
+        current_name = get_exercise_name(current_exercise)
 
-        # New UI
-        current_name = get_exercise_name(
-            current_exercise
-        )
-
-        # 7. Draw body analysis result (Shape & Note)
-        draw_unicode_text(
-            frame,
-            form_result,
-            current_name,
-            camera_view,
-            current_body_type,
-            current_desc,
-        )
-
-        display_frame = cv2.resize(
-            frame,
-            (
-                DISPLAY_WIDTH,
-                DISPLAY_HEIGHT,
-            ),
-        )
-
-        # 8. Draw Imbalance Issues (Lỗi lệch vai, hông, nghiêng đầu, cổ rùa...)
-        y_offset = 340  # Bắt đầu vẽ ngay dưới Body Note
+        # =========================================================
+        # UI RENDERING
+        # =========================================================
+        info_y = 40
         
-        if current_imbalances:  # Nếu danh sách chứa lỗi lệch (không rỗng)
+        draw_unicode_text(frame, f"Bai tap: {current_name} ({camera_view})", (20, info_y), font_size=20, color=(0, 255, 255), bold=True)
+        info_y += 35
+        draw_unicode_text(frame, f"Dang nguoi: {current_body_type}", (20, info_y), font_size=18, color=(255, 255, 0), bold=False)
+        info_y += 35
+        
+        if current_desc:
+            draw_unicode_text(frame, current_desc, (20, info_y), font_size=16, color=(255, 255, 255), bold=False)
+            info_y += 35
+            
+        if form_result and isinstance(form_result, dict):
+            feedbacks = form_result.get('feedback', [])
+            for fb in feedbacks:
+                warning = fb.get('warning', '')
+                correction = fb.get('correction', '')
+                
+                if fb.get('code') == 'good_form':
+                    draw_unicode_text(frame, f"Form: {warning}", (20, info_y), font_size=18, color=(0, 255, 0), bold=True)
+                    info_y += 30
+                else:
+                    draw_unicode_text(frame, f"Loi: {warning}", (20, info_y), font_size=18, color=(0, 165, 255), bold=True)
+                    info_y += 30
+                    draw_unicode_text(frame, f"-> Sua: {correction}", (20, info_y), font_size=16, color=(255, 255, 255), bold=False)
+                    info_y += 35
+
+        y_offset = 340  
+        if current_imbalances: 
             for issue in current_imbalances:
-                # Nếu chuỗi chứa chữ "THANG" hoặc "CAN DOI" thì vẽ màu xanh lá, ngược lại vẽ màu đỏ cảnh báo
-                color = (0, 255, 0) if ("THANG" in issue or "CAN" in issue) else (0, 0, 255)
+                color = (0, 255, 0) if ("THANG" in issue.upper() or "CAN" in issue.upper()) else (0, 0, 255)
                 draw_unicode_text(
                     frame,
                     f"- {issue}",
@@ -165,23 +166,20 @@ def main():
                     color=color,
                     bold=False
                 )
-                y_offset += 35  # Tự động xuống dòng cho lỗi tiếp theo
+                y_offset += 35  
         else:
-            # Khi tất cả các trục vai, hông, cổ đều thẳng tuyệt đối (danh sách [] trống hoàn toàn)
             draw_unicode_text(
                 frame,
-                "- Tư thế: CÂN ĐỐI",
+                "- Tu the: CAN DOI",
                 (20, y_offset),
                 font_size=18,
-                color=(0, 255, 0),    # Màu XANH LÁ biểu thị trạng thái chuẩn form
+                color=(0, 255, 0), 
                 bold=True
             )
 
-        # 9. Resize display window
         display_frame = cv2.resize(frame, (DISPLAY_WIDTH, DISPLAY_HEIGHT))
         cv2.imshow(WINDOW_NAME, display_frame)
 
-        # 10. Key events (Tối ưu bằng elif)
         key = cv2.waitKey(1) & 0xFF
 
         if key == ord("q"):
@@ -210,8 +208,7 @@ def main():
             form_checker = FormChecker(exercise=current_exercise, camera_view=camera_view)
             print(f"Switched to: {exercise_index + 1}. {get_exercise_name(current_exercise)}")
 
-    # Cleanup
-    pose_estimator.close()
+    pose.close() 
     cap.release()
     cv2.destroyAllWindows()
 
