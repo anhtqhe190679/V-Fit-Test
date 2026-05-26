@@ -1,4 +1,7 @@
 mediapipe==0.10.21
-numpy==1.26.4
-opencv-contrib-python==4.10.0.84
-opencv-python==4.10.0.84
+numpy==2.4.6
+opencv_contrib_python==4.11.0.86
+opencv_python==4.13.0.92
+Pillow==12.2.0
+python-dotenv==1.2.2
+Requests==2.34.2
