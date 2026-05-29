@@ -33,15 +33,26 @@ frame_counter = 0
 COUNTDOWN_TOTAL_FRAMES = 90 
 
 def get_recommendations(body_type):
+    """
+    Hàm gợi ý bài tập đã được cập nhật để khớp với kết quả từ AI Model
+    (Chữ V, Chữ Nhật, Quả Lê)
+    """
     recommendations = []
+    # Xử lý chuỗi an toàn (tránh lỗi NoneType)
+    if not body_type:
+        return ["squat", "bicep_curl", "barbell_bench_press"]
+        
     body_type_upper = body_type.upper()
     
-    if "THUA CAN" in body_type_upper or "BEO" in body_type_upper:
-        recommendations = ["squat", "deadlift", "leg_press"]
-    elif "THIEU CAN" in body_type_upper or "GAY" in body_type_upper:
-        recommendations = ["bicep_curl", "barbell_bench_press", "lat_pulldown", "barbell_row"]
-    elif "CHU V" in body_type_upper:
+    if "CHU V" in body_type_upper:
+        # Dáng chữ V: Cơ thể thể thao, duy trì với bài compound
         recommendations = ["squat", "dumbbell_lateral_raise", "romanian_deadlift"]
+    elif "QUA LE" in body_type_upper:
+        # Dáng quả lê (Hông to): Tập trung săn chắc thân dưới, phát triển thân trên
+        recommendations = ["squat", "deadlift", "leg_press", "pull_up"]
+    elif "CHU NHAT" in body_type_upper:
+        # Dáng chữ nhật: Tập vai và mông để tạo điểm thắt eo
+        recommendations = ["squat", "bicep_curl", "barbell_bench_press", "lat_pulldown"]
     else:
         recommendations = ["squat", "bicep_curl", "barbell_bench_press", "pull_up"]
         
@@ -61,7 +72,6 @@ def extract_keypoints(results, width, height):
     return keypoints
 
 def main():
-    # THÊM 'frame_counter' VÀO ĐÂY ĐỂ ĐỊNH NGHĨA BIẾN TOÀN CỤC CHUẨN XÁC
     global APP_STAGE, SAVED_BODY_TYPE, SAVED_BODY_DESC, RECOMMENDED_EXERCISES, frame_counter
     
     cap = cv2.VideoCapture(0)
@@ -131,10 +141,13 @@ def main():
                 draw_unicode_text(frame, "Hay dung vung va giu nguyen tu the...", (20, 75), font_size=16, color=(200, 200, 200), bold=False)
 
                 if countdown_counter <= 0:
-                    report = body_analyzer.generate_report(landmarks=keypoints, segmentation_mask=None)
-                    if report and report.get("status") == "success":
-                        SAVED_BODY_TYPE = report.get("body_type", "Chua xac dinh")
-                        SAVED_BODY_DESC = report.get("general_description", "")
+                    # [ĐÃ SỬA LỖI Ở ĐÂY]: Truyền biến `frame` vào cho AI phân tích
+                    report = body_analyzer.generate_report(frame=frame, keypoints=keypoints, segmentation_mask=None)
+                    
+                    if report:
+                        # Thay đổi cách lấy key từ dict sao cho khớp với body_analyzer.py
+                        SAVED_BODY_TYPE = report.get("body_shape", "Chua xac dinh")
+                        SAVED_BODY_DESC = "Phan tich boi AI Deep Learning" # Mô tả tĩnh tạm thời
                         
                         RECOMMENDED_EXERCISES = get_recommendations(SAVED_BODY_TYPE)
                         APP_STAGE = "RECOMMEND"
@@ -149,7 +162,7 @@ def main():
         elif APP_STAGE == "RECOMMEND":
             draw_unicode_text(frame, "--- KET QUA QUET DANG NGUOI ---", (20, 40), font_size=22, color=(0, 255, 255), bold=True)
             draw_unicode_text(frame, f"Dang cua ban: {SAVED_BODY_TYPE}", (20, 85), font_size=18, color=(0, 255, 0), bold=True)
-            draw_unicode_text(frame, f"Chi so do luong: {SAVED_BODY_DESC}", (20, 120), font_size=16, color=(255, 255, 255), bold=False)
+            draw_unicode_text(frame, f"Chi tiet: {SAVED_BODY_DESC}", (20, 120), font_size=16, color=(255, 255, 255), bold=False)
             
             draw_unicode_text(frame, "--- AI RECOMMENDATION (BAI TAP GOI Y) ---", (20, 180), font_size=20, color=(255, 255, 0), bold=True)
             

@@ -1,29 +1,25 @@
-from .posture_analyzer import PostureAnalyzer
+# File: body_analysis/body_analyzer.py
 from .imbalance_detector import ImbalanceDetector
+from .posture_analyzer import PostureAnalyzer
+
+# [ĐÃ SỬA] Import class từ file body_shape.py của bạn
+from .body_shape import BodyShapePredictor  
 
 class BodyAnalyzer:
     def __init__(self):
+        self.imbalance_detector = ImbalanceDetector(tilt_threshold=20.0)
         self.posture_analyzer = PostureAnalyzer()
-        # FIX QUAN TRỌNG: Chuyển ngưỡng (threshold) từ 45.0 xuống 5.0 để nhạy bén hơn
-        self.imbalance_detector = ImbalanceDetector(tilt_threshold=5.0)
+        
+        # Khởi tạo AI Predictor
+        self.shape_predictor = BodyShapePredictor(model_path="bmi_finetuned_model.pth")
 
-    def generate_report(self, landmarks, segmentation_mask=None):
-        if not landmarks:
-            return {"status": "error", "message": "No landmarks detected."}
-
-        try:
-            # 1. Phân tích Dáng người & Ty lệ Mỡ/Cơ
-            shape_report = self.posture_analyzer.analyze_shape(landmarks, segmentation_mask)
-            
-            # 2. Phân tích Độ lệch vẹo xương khớp (Đầu, Vai, Hông, Trục người)
-            imbalance_issues = self.imbalance_detector.detect_imbalance(landmarks)
-            
-            # 3. Gom kết quả xuất ra main
-            return {
-                "status": "success",
-                "body_type": shape_report["body_type"],
-                "general_description": shape_report["description"],
-                "imbalance_issues": imbalance_issues
-            }
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
+    def generate_report(self, frame, keypoints, segmentation_mask=None):
+        imbalance_issues = self.imbalance_detector.detect_imbalance(keypoints)
+        
+        # Đưa ảnh thật (frame) vào model
+        body_shape_result = self.shape_predictor.predict_body_shape(frame)
+        
+        return {
+            "imbalances": imbalance_issues,
+            "body_shape": body_shape_result # Trả về với key là 'body_shape'
+        }
