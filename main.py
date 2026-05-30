@@ -34,25 +34,20 @@ COUNTDOWN_TOTAL_FRAMES = 90
 
 def get_recommendations(body_type):
     """
-    Hàm gợi ý bài tập đã được cập nhật để khớp với kết quả từ AI Model
-    (Chữ V, Chữ Nhật, Quả Lê)
+    Hàm gợi ý bài tập khớp chuẩn xác với kết quả từ AI Model Deep Learning
     """
     recommendations = []
-    # Xử lý chuỗi an toàn (tránh lỗi NoneType)
     if not body_type:
-        return ["squat", "bicep_curl", "barbell_bench_press"]
+        return ["squat", "bicep_curl", "barbell_bench_press", "pull_up"]
         
     body_type_upper = body_type.upper()
     
     if "CHU V" in body_type_upper:
-        # Dáng chữ V: Cơ thể thể thao, duy trì với bài compound
         recommendations = ["squat", "dumbbell_lateral_raise", "romanian_deadlift"]
     elif "QUA LE" in body_type_upper:
-        # Dáng quả lê (Hông to): Tập trung săn chắc thân dưới, phát triển thân trên
         recommendations = ["squat", "deadlift", "leg_press", "pull_up"]
     elif "CHU NHAT" in body_type_upper:
-        # Dáng chữ nhật: Tập vai và mông để tạo điểm thắt eo
-        recommendations = ["squat", "bicep_curl", "barbell_bench_press", "lat_pulldown"]
+        recommendations = ["squat", "bicep_curl", "barbell_bench_press", "pull_up"]
     else:
         recommendations = ["squat", "bicep_curl", "barbell_bench_press", "pull_up"]
         
@@ -84,9 +79,14 @@ def main():
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
 
     mp_pose = mp.solutions.pose
-    pose = mp_pose.Pose(model_complexity=2, min_detection_confidence=0.6, min_tracking_confidence=0.6)
+    # Bổ sung thêm enable_segmentation=True vào cuối
+    pose = mp_pose.Pose(
+        model_complexity=2, 
+        min_detection_confidence=0.6, 
+        min_tracking_confidence=0.6,
+        enable_segmentation=True 
+    )
     mp_drawing = mp.solutions.drawing_utils
-
     body_analyzer = BodyAnalyzer()
     
     exercise_index = 0
@@ -95,9 +95,9 @@ def main():
     form_checker = FormChecker(exercise=current_exercise, camera_view=camera_view)
 
     current_imbalances = []
-    countdown_counter = COUNTDOWN_TOTAL_FRAMES 
+    countdown_counter = COUNTDOWN_TOTAL_FRAMES
 
-    print("\n>>> UNG DUNG KHIEN HANH: GIAI DOAN 1 - QUET DANG NGUOI <<<")
+    print("\n>>> UNG DUNG KHIEN HANH: GIAIDOAN 1 - QUET DANG NGUOI <<<")
 
     while True:
         ret, frame = cap.read()
@@ -141,17 +141,25 @@ def main():
                 draw_unicode_text(frame, "Hay dung vung va giu nguyen tu the...", (20, 75), font_size=16, color=(200, 200, 200), bold=False)
 
                 if countdown_counter <= 0:
-                    # [ĐÃ SỬA LỖI Ở ĐÂY]: Truyền biến `frame` vào cho AI phân tích
-                    report = body_analyzer.generate_report(frame=frame, keypoints=keypoints, segmentation_mask=None)
+                    # Rút mặt nạ bóc tách hình thể thực tế an toàn bằng hàm getattr
+                    mask_data = getattr(results, "segmentation_mask", None)
                     
-                    if report:
-                        # Thay đổi cách lấy key từ dict sao cho khớp với body_analyzer.py
+                    # [ĐA SỬA CHUẨN ĐỒNG BỘ]: Gọi chính xác từ khóa 'landmarks' theo cấu trúc phân tích lõi
+                    report = body_analyzer.generate_report(frame=frame, landmarks=keypoints, segmentation_mask=mask_data)
+                    
+                    if report and report.get("status") == "success":
+                        # Đồng bộ key 'body_shape' lấy từ kết quả trích xuất của Model AI
                         SAVED_BODY_TYPE = report.get("body_shape", "Chua xac dinh")
-                        SAVED_BODY_DESC = "Phan tich boi AI Deep Learning" # Mô tả tĩnh tạm thời
+                        SAVED_BODY_DESC = report.get("general_description", "Phan tich boi AI Deep Learning")
                         
                         RECOMMENDED_EXERCISES = get_recommendations(SAVED_BODY_TYPE)
                         APP_STAGE = "RECOMMEND"
                         print(f"\n[AI] Da luu dang nguoi: {SAVED_BODY_TYPE}")
+                    else:
+                        # Nếu trạm điều phối báo lỗi ngầm, in log ra Terminal để debug dễ dàng
+                        print(f"[DEBUG LỖI AI]: {report.get('message') if report else 'Không nhận được báo cáo'}")
+                        # Reset lại bộ đếm để người dùng thử quét lại ở frame tiếp theo
+                        countdown_counter = COUNTDOWN_TOTAL_FRAMES
             else:
                 countdown_counter = COUNTDOWN_TOTAL_FRAMES
                 draw_unicode_text(frame, "Hay dung sao cho camera thay ro tu Vai den Hong de bat dau", (20, 40), font_size=20, color=(0, 0, 255), bold=True)
@@ -215,7 +223,7 @@ def main():
                         info_y += 35
 
             y_offset = 380  
-            if current_imbalances: 
+            if current_imbalances:
                 for issue in current_imbalances:
                     color = (0, 255, 0) if ("THANG" in issue.upper() or "CAN" in issue.upper()) else (0, 0, 255)
                     draw_unicode_text(frame, f"- {issue}", (20, y_offset), font_size=18, color=color, bold=False)
@@ -237,9 +245,9 @@ def main():
             break
             
         elif APP_STAGE == "RECOMMEND":
-            if key == ord("n"): 
+            if key == ord("n"):
                 exercise_index = (exercise_index + 1) % len(RECOMMENDED_EXERCISES)
-            elif key == ord("p"): 
+            elif key == ord("p"):
                 exercise_index = (exercise_index - 1) % len(RECOMMENDED_EXERCISES)
             elif key == 13: # Phím ENTER
                 current_exercise = RECOMMENDED_EXERCISES[exercise_index % len(RECOMMENDED_EXERCISES)]
@@ -255,11 +263,11 @@ def main():
             elif key == ord("s"):
                 camera_view = "side"
                 form_checker.set_camera_view(camera_view)
-            elif key == ord("b"): 
+            elif key == ord("b"):
                 countdown_counter = COUNTDOWN_TOTAL_FRAMES
                 APP_STAGE = "RECOMMEND"
 
-    pose.close() 
+    pose.close()
     cap.release()
     cv2.destroyAllWindows()
 
