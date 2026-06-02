@@ -69,6 +69,22 @@ def extract_keypoints(results, width, height):
 def main():
     global APP_STAGE, SAVED_BODY_TYPE, SAVED_BODY_DESC, RECOMMENDED_EXERCISES, frame_counter
     
+    # ========================================================
+    # THÊM MỚI: BẢNG NHẬP THÔNG TIN TRƯỚC KHI BẬT CAMERA
+    # ========================================================
+    print("\n" + "="*50)
+    print(" 🚀 CHÀO MỪNG ĐẾN VỚI V-FIT AI COACH ")
+    print("="*50)
+    try:
+        user_height = float(input("👉 Nhập chiều cao của bạn (cm): "))
+        user_weight = float(input("👉 Nhập cân nặng của bạn (kg): "))
+    except ValueError:
+        print("⚠️ Nhập sai định dạng! Hệ thống sẽ dùng mặc định: 170cm, 60kg")
+        user_height = 170.0
+        user_weight = 60.0
+    print(f"\n✅ Đã nhận dữ liệu: {user_height}cm - {user_weight}kg")
+    print("⏳ Đang khởi động Camera, vui lòng chờ...\n")
+    # ========================================================
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Could not open camera.")
@@ -84,7 +100,7 @@ def main():
         model_complexity=2, 
         min_detection_confidence=0.6, 
         min_tracking_confidence=0.6,
-        enable_segmentation=True 
+        enable_segmentation=False 
     )
     mp_drawing = mp.solutions.drawing_utils
     body_analyzer = BodyAnalyzer()
@@ -105,6 +121,11 @@ def main():
             break
 
         frame = cv2.flip(frame, 1)
+        
+        # ---> DÒNG BẮT BUỘC PHẢI THÊM VÀO <---
+        clean_frame = frame.copy() 
+        # ------------------------------------
+
         height, width, _ = frame.shape
         image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = pose.process(image_rgb)
@@ -141,11 +162,12 @@ def main():
                 draw_unicode_text(frame, "Hay dung vung va giu nguyen tu the...", (20, 75), font_size=16, color=(200, 200, 200), bold=False)
 
                 if countdown_counter <= 0:
-                    # Rút mặt nạ bóc tách hình thể thực tế an toàn bằng hàm getattr
-                    mask_data = getattr(results, "segmentation_mask", None)
-                    
-                    # [ĐA SỬA CHUẨN ĐỒNG BỘ]: Gọi chính xác từ khóa 'landmarks' theo cấu trúc phân tích lõi
-                    report = body_analyzer.generate_report(frame=frame, landmarks=keypoints, segmentation_mask=mask_data)
+                    # SỬA LẠI DÒNG NÀY: Chuyền thông tin người dùng vừa nhập vào AI
+                    report = body_analyzer.generate_report(
+                        frame=clean_frame, 
+                        height_cm=user_height, 
+                        weight_kg=user_weight
+                    )
                     
                     if report and report.get("status") == "success":
                         # Đồng bộ key 'body_shape' lấy từ kết quả trích xuất của Model AI
@@ -156,8 +178,8 @@ def main():
                         APP_STAGE = "RECOMMEND"
                         print(f"\n[AI] Da luu dang nguoi: {SAVED_BODY_TYPE}")
                     else:
-                        # Nếu trạm điều phối báo lỗi ngầm, in log ra Terminal để debug dễ dàng
-                        print(f"[DEBUG LỖI AI]: {report.get('message') if report else 'Không nhận được báo cáo'}")
+                        # Đã sửa 'message' thành 'general_description' để lấy đúng báo cáo lỗi của AI
+                        print(f"[DEBUG LỖI AI]: {report.get('general_description', 'Khong xac dinh')}")
                         # Reset lại bộ đếm để người dùng thử quét lại ở frame tiếp theo
                         countdown_counter = COUNTDOWN_TOTAL_FRAMES
             else:
