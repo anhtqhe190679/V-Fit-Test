@@ -70,21 +70,14 @@ def main():
     global APP_STAGE, SAVED_BODY_TYPE, SAVED_BODY_DESC, RECOMMENDED_EXERCISES, frame_counter
     
     # ========================================================
-    # THÊM MỚI: BẢNG NHẬP THÔNG TIN TRƯỚC KHI BẬT CAMERA
+    # KHỞI ĐỘNG V-FIT AI COACH (Thuần Computer Vision)
     # ========================================================
     print("\n" + "="*50)
     print(" 🚀 CHÀO MỪNG ĐẾN VỚI V-FIT AI COACH ")
     print("="*50)
-    try:
-        user_height = float(input("👉 Nhập chiều cao của bạn (cm): "))
-        user_weight = float(input("👉 Nhập cân nặng của bạn (kg): "))
-    except ValueError:
-        print("⚠️ Nhập sai định dạng! Hệ thống sẽ dùng mặc định: 170cm, 60kg")
-        user_height = 170.0
-        user_weight = 60.0
-    print(f"\n✅ Đã nhận dữ liệu: {user_height}cm - {user_weight}kg")
-    print("⏳ Đang khởi động Camera, vui lòng chờ...\n")
+    print("⏳ Đang khởi động Camera và tải AI Model, vui lòng chờ...\n")
     # ========================================================
+    
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Could not open camera.")
@@ -95,7 +88,6 @@ def main():
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
 
     mp_pose = mp.solutions.pose
-    # Bổ sung thêm enable_segmentation=True vào cuối
     pose = mp_pose.Pose(
         model_complexity=2, 
         min_detection_confidence=0.6, 
@@ -122,9 +114,8 @@ def main():
 
         frame = cv2.flip(frame, 1)
         
-        # ---> DÒNG BẮT BUỘC PHẢI THÊM VÀO <---
+        # Lưu lại frame gốc chưa bị vẽ xương để YOLO bóc mỡ
         clean_frame = frame.copy() 
-        # ------------------------------------
 
         height, width, _ = frame.shape
         image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -162,25 +153,21 @@ def main():
                 draw_unicode_text(frame, "Hay dung vung va giu nguyen tu the...", (20, 75), font_size=16, color=(200, 200, 200), bold=False)
 
                 if countdown_counter <= 0:
-                    # SỬA LẠI DÒNG NÀY: Chuyền thông tin người dùng vừa nhập vào AI
+                    # Gửi frame sạch và keypoints sang AI phân tích
                     report = body_analyzer.generate_report(
                         frame=clean_frame, 
-                        height_cm=user_height, 
-                        weight_kg=user_weight
+                        keypoints=keypoints
                     )
                     
                     if report and report.get("status") == "success":
-                        # Đồng bộ key 'body_shape' lấy từ kết quả trích xuất của Model AI
-                        SAVED_BODY_TYPE = report.get("body_shape", "Chua xac dinh")
+                        SAVED_BODY_TYPE = report.get("body_type", report.get("body_shape", "Chua xac dinh"))
                         SAVED_BODY_DESC = report.get("general_description", "Phan tich boi AI Deep Learning")
                         
                         RECOMMENDED_EXERCISES = get_recommendations(SAVED_BODY_TYPE)
                         APP_STAGE = "RECOMMEND"
                         print(f"\n[AI] Da luu dang nguoi: {SAVED_BODY_TYPE}")
                     else:
-                        # Đã sửa 'message' thành 'general_description' để lấy đúng báo cáo lỗi của AI
                         print(f"[DEBUG LỖI AI]: {report.get('general_description', 'Khong xac dinh')}")
-                        # Reset lại bộ đếm để người dùng thử quét lại ở frame tiếp theo
                         countdown_counter = COUNTDOWN_TOTAL_FRAMES
             else:
                 countdown_counter = COUNTDOWN_TOTAL_FRAMES
@@ -215,8 +202,13 @@ def main():
         elif APP_STAGE == "WORKOUT":
             if keypoints is not None:
                 form_result = form_checker.check(keypoints, calculate_body_angles(keypoints))
+                
                 if hasattr(body_analyzer, 'imbalance_detector'):
-                    current_imbalances = body_analyzer.imbalance_detector.detect_imbalance(keypoints)
+                    # Tự động khớp tên hàm detect hoặc detect_imbalance
+                    if hasattr(body_analyzer.imbalance_detector, 'detect_imbalance'):
+                        current_imbalances = body_analyzer.imbalance_detector.detect_imbalance(keypoints)
+                    elif hasattr(body_analyzer.imbalance_detector, 'detect'):
+                        current_imbalances = body_analyzer.imbalance_detector.detect(keypoints)
             else:
                 form_result = form_checker.check(None, None)
                 current_imbalances = []

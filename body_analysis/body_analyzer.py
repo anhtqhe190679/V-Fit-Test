@@ -1,78 +1,37 @@
+# file: body_analysis/body_analyzer.py
 import math
-from ultralytics import YOLO
-from config import ModelConfig
-from body_analysis.imbalance_detector import ImbalanceDetector 
+from body_analysis.body_shape_predictor import BodyShapePredictor
+# Nếu có ImbalanceDetector thì bạn cứ import và để lại bình thường
+# from body_analysis.imbalance_detector import ImbalanceDetector
 
 class BodyAnalyzer:
     def __init__(self):
-        # Chỉ load 1 mô hình Pose duy nhất cho toàn bộ App (Siêu nhẹ)
-        model_path = ModelConfig.MODEL_PATHS["pose"]
-        self.model = YOLO(model_path)
-        self.imbalance_detector = ImbalanceDetector(tilt_threshold=20.0)
-
-    def calculate_distance(self, p1, p2):
-        """Hàm tính khoảng cách giữa 2 điểm (Pixel)"""
-        return math.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)
-
-    def generate_report(self, frame, height_cm=170, weight_kg=60):
-        """
-        Phân tích dáng người dựa vào AI Pose + Chỉ số cơ thể thực tế
-        """
-        # Chạy YOLO Pose
-        results = self.model(frame, verbose=False)[0]
+        # Khởi tạo mô hình AI nhìn dáng (YOLO)
+        self.shape_predictor = BodyShapePredictor(model_path="best.pt")
+        # self.imbalance_detector = ImbalanceDetector() # GIỮ NGUYÊN NẾU CÓ
         
-        report = {
-            "status": "failed",
-            "body_shape": "Chua xac dinh",
-            "general_description": "YOLO không tìm thấy cơ thể bạn. Hãy lùi ra xa nhé!"
-        }
-
-        if len(results.boxes) == 0 or results.keypoints is None:
-            return report
-
-        # Lấy tọa độ các khớp (Index theo chuẩn YOLO: 5=Vai trái, 6=Vai phải, 11=Hông trái, 12=Hông phải)
-        # Lưu ý: YOLO trả về danh sách các người, lấy người đầu tiên [0]
-        keypoints = results.keypoints.xy[0].cpu().numpy()
-        
+    def generate_report(self, frame, keypoints):
         try:
-            # 1. AI TÍNH TỶ LỆ CƠ THỂ
-            l_shoulder, r_shoulder = keypoints[5], keypoints[6]
-            l_hip, r_hip = keypoints[11], keypoints[12]
+            # 1. Tính bề ngang vai thực tế bằng Pixel từ khung xương MediaPipe
+            shoulder_width_px = 0
+            if keypoints and 'left_shoulder' in keypoints and 'right_shoulder' in keypoints:
+                ls = keypoints['left_shoulder']
+                rs = keypoints['right_shoulder']
+                # Định lý Pytago tính khoảng cách 2 điểm
+                shoulder_width_px = math.sqrt((ls['x'] - rs['x'])**2 + (ls['y'] - rs['y'])**2)
             
-            shoulder_width = self.calculate_distance(l_shoulder, r_shoulder)
-            hip_width = self.calculate_distance(l_hip, r_hip)
+            # 2. Quăng ảnh camera và độ rộng vai cho YOLO phán xử
+            shape_report = self.shape_predictor.predict(frame, shoulder_width_px)
             
-            # Tỷ lệ Vai / Hông
-            ratio = shoulder_width / hip_width if hip_width > 0 else 1.0
+            # 3. Gom kết quả lỗi vẹo (nếu có)
+            # imbalances = self.imbalance_detector.detect_imbalance(keypoints) if keypoints else []
 
-            # 2. TOÁN HỌC TÍNH BMI
-            bmi = weight_kg / ((height_cm / 100) ** 2)
-
-            # 3. KẾT HỢP ĐỂ ĐƯA RA KẾT LUẬN
-            report["status"] = "success"
-            
-            if bmi < 18.5:
-                report["body_shape"] = "DANG NGUOI GAY (Thieu can)"
-                report["general_description"] = f"BMI: {bmi:.1f} - Thieu co bap, can tap trung an uong va cac bai tap tang co (Hypertrophy)."
-            elif bmi >= 25.0:
-                if ratio < 0.95:
-                    report["body_shape"] = "DANG QUA LE (Thua can)"
-                    report["general_description"] = f"BMI: {bmi:.1f} - Mo tap trung o mong/dui. Can tap trung cardio dot calo toan than."
-                else:
-                    report["body_shape"] = "DANG CHU O / BEO TONG THE"
-                    report["general_description"] = f"BMI: {bmi:.1f} - Can dieu chinh che do an tham hut calo (Caloric Deficit)."
-            else:
-                # BMI Bình thường (18.5 -> 24.9)
-                if ratio > 1.15:
-                    report["body_shape"] = "DANG CHU V (The thao)"
-                    report["general_description"] = f"BMI: {bmi:.1f} - Ti le co the dep, vai rong hon hong. Tiep tuc duy tri tap luyen."
-                else:
-                    report["body_shape"] = "DANG CHU NHAT (Can doi)"
-                    report["general_description"] = f"BMI: {bmi:.1f} - Can nang on dinh nhung thieu duong cong. Nen tap them vai va mong."
-
-            print(f"[AI INFO] BMI: {bmi:.1f} | Ty le Vai/Hong: {ratio:.2f}")
-
+            return {
+                "status": "success",
+                "body_type": shape_report["body_shape"],
+                "general_description": shape_report["description"],
+                # "imbalance_issues": imbalances # GIỮ NGUYÊN NẾU CÓ
+            }
         except Exception as e:
-            report["general_description"] = "Khong thay ro cac khop Vai va Hong."
-            
-        return report
+            print(f"Lỗi BodyAnalyzer: {e}")
+            return {"status": "error"}
