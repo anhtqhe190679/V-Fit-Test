@@ -1,4 +1,5 @@
 import cv2
+import math
 import mediapipe as mp
 
 from shared.angle_calculator import calculate_body_angles
@@ -95,6 +96,7 @@ def main():
         enable_segmentation=False 
     )
     mp_drawing = mp.solutions.drawing_utils
+    
     body_analyzer = BodyAnalyzer()
     
     exercise_index = 0
@@ -105,7 +107,7 @@ def main():
     current_imbalances = []
     countdown_counter = COUNTDOWN_TOTAL_FRAMES
 
-    print("\n>>> UNG DUNG KHIEN HANH: GIAIDOAN 1 - QUET DANG NGUOI <<<")
+    print("\n>>> UNG DUNG KHIEN HANH: GIAI DOAN 1 - QUET DANG NGUOI <<<")
 
     while True:
         ret, frame = cap.read()
@@ -114,7 +116,7 @@ def main():
 
         frame = cv2.flip(frame, 1)
         
-        # Lưu lại frame gốc chưa bị vẽ xương để YOLO bóc mỡ
+        # Lưu lại frame gốc chưa bị vẽ xương để AI Model bóc dáng người
         clean_frame = frame.copy() 
 
         height, width, _ = frame.shape
@@ -129,10 +131,12 @@ def main():
             cv2.rectangle(frame, (0, 0), (width, height), (30, 30, 30), -1)
 
         # =========================================================================
-        # GIAI DOAN 1: QUET DANG NGUOI VỚI CƠ CHẾ ĐẾM NGƯỢC
+        # GIAI DOAN 1: QUET DANG NGUOI VỚI CƠ CHẾ ĐO KHOẢNG CÁCH NGẦM
         # =========================================================================
         if APP_STAGE == "SCAN_BODY":
             has_valid_points = False
+            
+            # Kiểm tra xem AI đã thấy đủ Vai và Hông chưa
             if keypoints is not None:
                 l_shoulder = keypoints.get('left_shoulder')
                 r_shoulder = keypoints.get('right_shoulder')
@@ -142,36 +146,50 @@ def main():
                     has_valid_points = True
 
             if has_valid_points:
-                countdown_counter -= 1
-                seconds_left = max(1, int(countdown_counter / 30) + 1)
+                # TÍNH TOÁN KHOẢNG CÁCH NGẦM (Dựa vào bề ngang vai)
+                current_shoulder_width = math.hypot(l_shoulder['x'] - r_shoulder['x'], l_shoulder['y'] - r_shoulder['y'])
                 
-                # Hiển thị số giây đếm ngược siêu to giữa màn hình
-                cv2.putText(frame, str(seconds_left), (int(width/2) - 30, int(height/2) + 50), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 4, (0, 255, 255), 8, cv2.LINE_AA)
+                # Ngưỡng pixel (Bạn có thể tinh chỉnh 2 số này nếu muốn xa/gần hơn)
+                MAX_SHOULDER = 380 
+                MIN_SHOULDER = 250
                 
-                draw_unicode_text(frame, f"Da tim thay co the! Chuan bi quet trong: {seconds_left}s", (20, 40), font_size=20, color=(0, 255, 0), bold=True)
-                draw_unicode_text(frame, "Hay dung vung va giu nguyen tu the...", (20, 75), font_size=16, color=(200, 200, 200), bold=False)
-
-                if countdown_counter <= 0:
-                    # Gửi frame sạch và keypoints sang AI phân tích
-                    report = body_analyzer.generate_report(
-                        frame=clean_frame, 
-                        keypoints=keypoints
-                    )
+                if current_shoulder_width > MAX_SHOULDER:
+                    countdown_counter = COUNTDOWN_TOTAL_FRAMES
+                    # Chữ to, viền dày, cách nhau 80px theo chiều dọc
+                    cv2.putText(frame, "QUAN SAT: QUA GAN", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 4, cv2.LINE_AA)
+                    cv2.putText(frame, "-> YEU CAU: LUI LAI", (50, 180), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 0, 255), 5, cv2.LINE_AA)
+                
+                elif current_shoulder_width < MIN_SHOULDER:
+                    countdown_counter = COUNTDOWN_TOTAL_FRAMES
+                    cv2.putText(frame, "QUAN SAT: QUA XA", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 165, 255), 4, cv2.LINE_AA)
+                    cv2.putText(frame, "-> YEU CAU: TIEN LEN", (50, 180), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 165, 255), 5, cv2.LINE_AA)
+                
+                else:
+                    # KHI KHOẢNG CÁCH ĐÃ ĐÚNG TIÊU CHUẨN
+                    countdown_counter -= 1
+                    seconds_left = max(1, int(countdown_counter / 30) + 1)
                     
-                    if report and report.get("status") == "success":
-                        SAVED_BODY_TYPE = report.get("body_type", report.get("body_shape", "Chua xac dinh"))
-                        SAVED_BODY_DESC = report.get("general_description", "Phan tich boi AI Deep Learning")
-                        
-                        RECOMMENDED_EXERCISES = get_recommendations(SAVED_BODY_TYPE)
-                        APP_STAGE = "RECOMMEND"
-                        print(f"\n[AI] Da luu dang nguoi: {SAVED_BODY_TYPE}")
-                    else:
-                        print(f"[DEBUG LỖI AI]: {report.get('general_description', 'Khong xac dinh')}")
-                        countdown_counter = COUNTDOWN_TOTAL_FRAMES
+                    cv2.putText(frame, "KHOANG CACH CHUAN!", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 4, cv2.LINE_AA)
+                    cv2.putText(frame, "GIU NGUYEN TU THE...", (50, 180), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 255), 5, cv2.LINE_AA)
+                    
+                    # SỐ ĐẾM NGƯỢC SIÊU TO Khổng Lồ NẰM GIỮA MÀN HÌNH
+                    cv2.putText(frame, str(seconds_left), (int(width/2) - 50, int(height/2) + 80), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 8.0, (0, 255, 0), 15, cv2.LINE_AA)
+
+                    if countdown_counter <= 0:
+                        report = body_analyzer.generate_report(frame=clean_frame, keypoints=keypoints)
+                        if report and report.get("status") == "success":
+                            SAVED_BODY_TYPE = report.get("body_type", report.get("body_shape", "Chua xac dinh"))
+                            SAVED_BODY_DESC = report.get("general_description", "Phan tich boi AI Model")
+                            RECOMMENDED_EXERCISES = get_recommendations(SAVED_BODY_TYPE)
+                            APP_STAGE = "RECOMMEND"
+                        else:
+                            countdown_counter = COUNTDOWN_TOTAL_FRAMES
             else:
+                # KHI KHÔNG THẤY NGƯỜI HOẶC CHƯA THẤY ĐỦ VAI/HÔNG
                 countdown_counter = COUNTDOWN_TOTAL_FRAMES
-                draw_unicode_text(frame, "Hay dung sao cho camera thay ro tu Vai den Hong de bat dau", (20, 40), font_size=20, color=(0, 0, 255), bold=True)
+                cv2.putText(frame, "HAY BUOC VAO CAMERA", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (200, 200, 200), 4, cv2.LINE_AA)
+                cv2.putText(frame, "DE BAT DAU QUET", (50, 180), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (255, 255, 255), 5, cv2.LINE_AA)
 
         # =========================================================================
         # GIAI DOAN 2: GOI Y BAI TAP (RECOMMENDATION MENU)
@@ -204,7 +222,6 @@ def main():
                 form_result = form_checker.check(keypoints, calculate_body_angles(keypoints))
                 
                 if hasattr(body_analyzer, 'imbalance_detector'):
-                    # Tự động khớp tên hàm detect hoặc detect_imbalance
                     if hasattr(body_analyzer.imbalance_detector, 'detect_imbalance'):
                         current_imbalances = body_analyzer.imbalance_detector.detect_imbalance(keypoints)
                     elif hasattr(body_analyzer.imbalance_detector, 'detect'):
